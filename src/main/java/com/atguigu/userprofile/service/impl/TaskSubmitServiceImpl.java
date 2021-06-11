@@ -91,7 +91,7 @@ public class TaskSubmitServiceImpl implements TaskSubmitService {
                     argK=argK.replace("--conf","").trim();
                     sparkConfMap.put(argK,argV);
                 }else{
-                    argK=argK.replace("--","").trim();
+                    argK=argK.trim();
                     sparkArgsMap.put(argK,argV);
                 }
             }
