@@ -80,7 +80,7 @@ public class TaskSubmitServiceImpl implements TaskSubmitService {
                 String arg = taskArgsArr[i];
                 String[] argsKV = arg.split("=");
                 String argK = argsKV[0];
-                String argV = argsKV[1];
+                String argV = argsKV[1].trim();
                 if(argK.indexOf("master")>=0||argK.indexOf("deploy")>=0){
                     continue;
                 }
