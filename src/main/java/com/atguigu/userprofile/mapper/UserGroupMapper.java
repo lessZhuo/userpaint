@@ -19,5 +19,9 @@ import java.util.List;
 @DS("mysql")
 public interface UserGroupMapper extends BaseMapper<UserGroup> {
 
+    @Insert("${sql}")
+    @DS("clickhouse")
+    public void insertUidsSQL(@Param("sql") String sql);
+
 
 }

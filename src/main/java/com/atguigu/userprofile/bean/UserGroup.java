@@ -24,14 +24,14 @@ public class UserGroup implements Serializable {
 
     private static final long serialVersionUID = 1L;
 
-    @TableId(value = "id", type = IdType.AUTO)
+    @TableId(value = "id", type = IdType.AUTO)  //声明主键  主键默认的生成方式 Auto= 数据库的auto_increment
     private Long id;
 
     private String userGroupName;
 
     private String conditionJsonStr;
 
-    @TableField(exist = false)
+    @TableField(exist = false)   //声明 数据表中实际不存在该字段
     private List<TagCondition> tagConditions;
 
     private String conditionComment;

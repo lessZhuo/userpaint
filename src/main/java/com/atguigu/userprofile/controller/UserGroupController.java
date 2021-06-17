@@ -49,6 +49,13 @@ public class UserGroupController {
         return  jsonObject.toJSONString();
     }
 
+    @PostMapping("/user-group")   //接收分群的保存  包括人群包的生成
+    public String  genUserGroup( @RequestBody  UserGroup userGroup){
+        System.out.println(userGroup);
+        userGroupService.genUserGroup(userGroup);
+        return "success";
+    }
+
 
 
 

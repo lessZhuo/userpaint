@@ -13,6 +13,7 @@ import com.baomidou.dynamic.datasource.annotation.DS;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import lombok.extern.slf4j.Slf4j;
 
+import org.apache.commons.lang3.StringUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import redis.clients.jedis.Jedis;
@@ -36,4 +37,155 @@ import java.util.Map;
 public class UserGroupServiceImpl extends ServiceImpl<UserGroupMapper, UserGroup> implements UserGroupService {
 
 
+    @Autowired
+    TagInfoService tagInfoService;
+
+    //1负责保存分群基本信息 mysql    mybatis-plus
+    // 2  根据分群中的条件筛选出人群包(基于bitmap的组合查询)
+    // 3 保存分群的人群包 -> clickhouse
+    //  4  保存分群的人群包 -> redis
+    @Override
+    public void genUserGroup(UserGroup userGroup) {
+      //1负责保存分群基本信息 mysql  （）
+
+      //  condition_json_str 分群条件(json)
+        String conditionJsonStr = JSON.toJSONString(userGroup.getTagConditions());
+        userGroup.setConditionJsonStr(conditionJsonStr);
+        //   condition_commentvarchar  分群条件(中文描述)
+        String conditionComment = userGroup.conditionJsonToComment();
+        userGroup.setConditionComment(conditionComment);
+        // create_time
+         userGroup.setCreateTime(new Date());
+         this.saveOrUpdate(userGroup);  //会把新生成的主键id 写入到对象中 //mysql
+
+        // 2  根据分群中的条件筛选出人群包(基于bitmap的组合查询)
+        String bitAndSql = getBitAndSql(userGroup.getTagConditions(), userGroup.getBusiDate());
+        System.out.println(bitAndSql);
+        // 3 保存分群的人群包 -> clickhouse
+        String insertUidsSql = getInsertUidsSql(userGroup.getId().toString(), bitAndSql);
+        baseMapper.insertUidsSQL(insertUidsSql); //执行sql  //clickhouse
+    }
+   //insert into  user_group
+    //select ....
+    private String getInsertUidsSql(String userGroupId,  String bitAndSql){
+        String insertUidsSql="insert into user_group select '"+userGroupId+"',"+bitAndSql;
+        return insertUidsSql;
+    }
+
+    //select
+    // bitmapAnd(
+    //	 bitmapAnd(
+    //	   (sql1)
+    //	    ,
+    //	   (sql2)
+    //	 ),
+    //	 (sql3)
+    // )
+    //
+    private String getBitAndSql(List<TagCondition> tagConditionList,String taskDate ){
+
+        Map<String, TagInfo> tagInfoMapWithCode = tagInfoService.getTagInfoMapWithCode();
+
+        String bitsql =null;
+
+        for (TagCondition tagCondition : tagConditionList) {
+            if(bitsql==null){
+                bitsql = "("+getConditionSQL(tagCondition,taskDate,tagInfoMapWithCode)+")";
+            }else{
+                bitsql= " bitmapAnd ( "+bitsql+",("  +getConditionSQL(tagCondition,taskDate,tagInfoMapWithCode)+"))";
+            }
+
+        }
+        return    bitsql;
+
+    }
+
+
+//(select  groupBitmapMergeState(us)
+// from user_tag_value_string
+// where  tag_code ='tg_person_base_gender' and tag_value='女性’
+// and dt=‘2021-05-16’)
+ //  1    表名           要 通过tag_code 查询mysql 中tag_info 中的tag_value_type
+//   2    tag_code  ->  参数
+//   3   tag_value     ->   参数
+//        加不加单引     ->要查询mysql 中tag_info 中的tag_value_type
+//        一个还是多个  -> 根据tagvalues 数组长度
+//  4   符号       ->  要根据operator  进行转义 =   >=    in  not in
+//  5   业务日期  -> 参数
+    private  String  getConditionSQL(TagCondition tagCondition, String taskDate , Map<String,TagInfo> tagInfoWithTagCodeMap){
+        String tagCode = tagCondition.getTagCode();
+        TagInfo tagInfo = tagInfoWithTagCodeMap.get(tagCode);
+        String tableName= getTableName(tagInfo.getTagValueType() ); //根据tagValueType 得到表名
+        List<String> tagValues = tagCondition.getTagValues();
+        String tagValueSQL = getTagValueSQL(tagValues, tagInfo.getTagValueType(), tagCondition.getOperator());
+
+        String conditionSQL="select  groupBitmapMergeState(us)  from  " +
+                ""+tableName+ " where  tag_code ='"+tagCode.toLowerCase()+"' and "+tagValueSQL+" and  dt='"+taskDate+"'";
+
+        return conditionSQL;
+    }
+
+
+    //根据 相关条件组合tag_value的判断表达式 如：tag_value in ('70后','80后’)
+    //   3   tag_value     ->   参数
+    //        加不加单引     ->要查询mysql 中tag_info 中的tag_value_type
+    //        一个还是多个  -> 根据tagvalues 数组长度
+
+    private String getTagValueSQL(  List<String> tagValues,  String  tagValueType ,String operatorStr  ){
+
+           String values=null;
+            if(tagValueType.equals(ConstCodes.TAG_VALUE_TYPE_DATE)||tagValueType.equals(ConstCodes.TAG_VALUE_TYPE_STRING)){
+                 values = "'" + StringUtils.join(tagValues, "','") + "'";
+            }else{
+                values =   StringUtils.join(tagValues, ",")  ;
+            }
+            if(tagValues.size()>1){
+                values="("+values+")";
+            }
+           String conditionOperator = getConditionOperator(operatorStr);
+
+            return  "tag_value "+conditionOperator+" "+ values;
+
+    }
+
+    //根据英文判断符号转为 sql判断符号
+    private  String getConditionOperator(String operator){
+        switch (operator){
+            case "eq":
+                return "=";
+            case "lte":
+                return "<=";
+            case "gte":
+                return ">=";
+            case "lt":
+                return "<";
+            case "gt":
+                return ">";
+            case "neq":
+                return "<>";
+            case "in":
+                return "in";
+            case "nin":
+                return "not in";
+        }
+        throw  new RuntimeException("操作符不正确");
+    }
+
+
+    //根据tagValueType 得到表名
+    private String getTableName(String tagValueType){
+        String tableNamePrefix="user_tag_value_";
+        if (tagValueType.equals(ConstCodes.TAG_VALUE_TYPE_LONG)) {
+            return tableNamePrefix+"long";
+        }else if (tagValueType.equals(ConstCodes.TAG_VALUE_TYPE_DECIMAL)) {
+            return tableNamePrefix+"decimal";
+        }else if (tagValueType.equals(ConstCodes.TAG_VALUE_TYPE_STRING)) {
+            return tableNamePrefix+"string";
+        }else if (tagValueType.equals(ConstCodes.TAG_VALUE_TYPE_DATE)) {
+            return tableNamePrefix+"date";
+        }else{
+            throw new RuntimeException("类型不匹配！！");
+        }
+
+    }
 }
