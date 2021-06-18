@@ -8,7 +8,6 @@ import com.atguigu.userprofile.constants.ConstCodes;
 import com.atguigu.userprofile.mapper.UserGroupMapper;
 import com.atguigu.userprofile.service.TagInfoService;
 import com.atguigu.userprofile.service.UserGroupService;
-import com.atguigu.userprofile.utils.RedisUtil;
 import com.baomidou.dynamic.datasource.annotation.DS;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import lombok.extern.slf4j.Slf4j;
@@ -16,8 +15,6 @@ import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
-import redis.clients.jedis.Jedis;
-import redis.clients.jedis.Pipeline;
 
 import java.util.Date;
 import java.util.List;
