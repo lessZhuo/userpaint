@@ -8,6 +8,7 @@ import com.atguigu.userprofile.constants.ConstCodes;
 import com.atguigu.userprofile.mapper.UserGroupMapper;
 import com.atguigu.userprofile.service.TagInfoService;
 import com.atguigu.userprofile.service.UserGroupService;
+import com.atguigu.userprofile.utils.RedisUtil;
 import com.baomidou.dynamic.datasource.annotation.DS;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import lombok.extern.slf4j.Slf4j;
@@ -15,6 +16,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import redis.clients.jedis.Jedis;
 
 import java.util.Date;
 import java.util.List;
@@ -44,7 +46,6 @@ public class UserGroupServiceImpl extends ServiceImpl<UserGroupMapper, UserGroup
     @Override
     public void genUserGroup(UserGroup userGroup) {
       //1负责保存分群基本信息 mysql  （）
-
       //  condition_json_str 分群条件(json)
         String conditionJsonStr = JSON.toJSONString(userGroup.getTagConditions());
         userGroup.setConditionJsonStr(conditionJsonStr);
@@ -55,14 +56,62 @@ public class UserGroupServiceImpl extends ServiceImpl<UserGroupMapper, UserGroup
          userGroup.setCreateTime(new Date());
          this.saveOrUpdate(userGroup);  //会把新生成的主键id 写入到对象中 //mysql
 
-        // 2  根据分群中的条件筛选出人群包(基于bitmap的组合查询)
+        // 2.1  根据分群中的条件筛选出人群包(基于bitmap的组合查询)
         String bitAndSql = getBitAndSql(userGroup.getTagConditions(), userGroup.getBusiDate());
         System.out.println(bitAndSql);
-        // 3 保存分群的人群包 -> clickhouse
+        // 2.2  保存分群的人群包 -> clickhouse
         String insertUidsSql = getInsertUidsSql(userGroup.getId().toString(), bitAndSql);
         baseMapper.insertUidsSQL(insertUidsSql); //执行sql  //clickhouse
+
+        //  3  保存人群包到redis 中
+        //  数据哪里来 ： 基于已经写入到clickhouse中的人群包数据  查询出来 然后写入redis
+        // 3.1 从clickhouse查询
+              //通过bitmapToArray 把clickhouse中的bitmap取出 成为id的集合
+        List<String> userIdsList = baseMapper.getUserIdListByUserGruopId(userGroup.getId().toString());
+        // 3.2 往redis中写入
+        //  type?  set   key ?  user_group:[id]   value?  uids ..    写api?  sadd     过期？不自动过期
+        Jedis jedis = RedisUtil.getJedis();
+        String[] uidArr = userIdsList.toArray(new String[]{});   //把list转为数组
+        String key="user_group:"+userGroup.getId();
+        jedis.del(key);    // 每次新建人群包时要清理旧的
+        jedis.sadd( key ,uidArr);  //批量提交
+        jedis.close();
+
+        // 4获得个数 更新到mysql中
+        Long userCount = baseMapper.getUserCountByUserGruopId(userGroup.getId().toString());
+        userGroup.setUserGroupNum(userCount);
+        userGroup.setUpdateTime(new Date());
+        baseMapper.updateById(userGroup);
+
+
     }
-   //insert into  user_group
+
+    @Override
+    public Long evaluateUserGroup(UserGroup userGroup) {
+        String bitAndSql = getBitAndSql(userGroup.getTagConditions(), userGroup.getBusiDate());
+        String  countUserSql=" select   bitmapCardinality("+bitAndSql +")";
+        Long userCount = baseMapper.getUserCountBySQL(countUserSql);
+        return userCount;
+    }
+
+    @Override
+    public void refreshUserGroup(String userGroupId, String busiDate) {
+        //清除原来的人群包信息
+        baseMapper.deleteUserCountById(userGroupId);
+        //重新查询人群包  依据条件
+        UserGroup userGroup = baseMapper.selectById(userGroupId);
+        String conditionJsonStr = userGroup.getConditionJsonStr();
+        List<TagCondition> tagConditions = JSON.parseArray(conditionJsonStr, TagCondition.class);
+        userGroup.setTagConditions(tagConditions);
+        userGroup.setBusiDate(busiDate);
+
+
+        //更新clickhouse  redis  人数
+        genUserGroup(userGroup);
+
+    }
+
+    //insert into  user_group
     //select ....
     private String getInsertUidsSql(String userGroupId,  String bitAndSql){
         String insertUidsSql="insert into user_group select '"+userGroupId+"',"+bitAndSql;

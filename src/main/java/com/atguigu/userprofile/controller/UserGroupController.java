@@ -56,7 +56,17 @@ public class UserGroupController {
         return "success";
     }
 
+    @PostMapping("/user-group-evaluate")
+    public Long userGroupEvaluate(@RequestBody  UserGroup userGroup){
+        Long userCount=  userGroupService.evaluateUserGroup(userGroup);
+        return userCount;
+    }
 
+    @PostMapping("/user-group-refresh/{id}")
+    public String refreshUserGroup(@PathVariable("id")String userGroupId,@RequestParam("busiDate") String busiDate){
+          userGroupService.refreshUserGroup(userGroupId,busiDate);
+          return  "success";
+    }
 
 
 }
