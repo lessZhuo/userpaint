@@ -23,5 +23,22 @@ public interface UserGroupMapper extends BaseMapper<UserGroup> {
     @DS("clickhouse")
     public void insertUidsSQL(@Param("sql") String sql);
 
+    @DS("clickhouse")
+    @Select("select  arrayJoin(bitmapToArray(us)) us   from user_group where user_group_id=#{id} ")
+    public List<String> getUserIdListByUserGruopId(@Param("id") String id);
+
+    @DS(("clickhouse"))
+    @Select("select bitmapCardinality(us) us_ct  from user_group where user_group_id =#{id}")
+    public Long getUserCountByUserGruopId(@Param("id") String id);
+
+
+    @DS(("clickhouse"))
+    @Select("${sql}")
+    public Long getUserCountBySQL(@Param("sql") String sql);
+
+
+    @DS("clickhouse")
+    @Delete("alter table  user_group  delete where user_group_id =#{id}")
+    public Long deleteUserCountById(@Param("id") String id);
 
 }

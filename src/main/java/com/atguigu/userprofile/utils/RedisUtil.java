@@ -1,11 +1,26 @@
 package com.atguigu.userprofile.utils;
 
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.annotation.Configuration;
 import redis.clients.jedis.Jedis;
 import redis.clients.jedis.JedisPool;
 import redis.clients.jedis.JedisPoolConfig;
 
+@Configuration
 public class RedisUtil {
 
+
+    public static   String  host;
+    public static   Integer  port;
+
+    @Value("${spring.redis.host}")
+    public void setHost(String host){
+        RedisUtil.host=host;
+    }
+    @Value("${spring.redis.port}")
+    public void setPort(Integer port){
+        RedisUtil.port=port;
+    }
 
     public static void main(String[] args) {
         Jedis jedis =  RedisUtil.getJedis();
@@ -35,7 +50,7 @@ public class RedisUtil {
             jedisPoolConfig.setMaxWaitMillis(1000);
             jedisPoolConfig.setTestOnBorrow(true);
 
-            jedisPool=new JedisPool(jedisPoolConfig,"bigdata01",6379);
+            jedisPool=new JedisPool(jedisPoolConfig,host,port);
             return jedisPool.getResource();
         }else{
             return jedisPool.getResource();

@@ -8,4 +8,8 @@ import org.springframework.scheduling.annotation.Async;
 public interface UserGroupService  extends IService<UserGroup> {
 
         public void genUserGroup(UserGroup userGroup);
+
+        public Long evaluateUserGroup(UserGroup userGroup);
+
+        public void   refreshUserGroup(String userGroupId,String busiDate);
 }
